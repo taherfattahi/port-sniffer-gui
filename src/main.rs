@@ -1,6 +1,6 @@
 
 use iced::{button, Align, Button, Column, Element, Sandbox, Settings,
-           Text, TextInput, text_input, Length, Container};
+           Text, TextInput, text_input, Length};
 
 use std::net::{IpAddr, TcpStream};
 use std::str::FromStr;
@@ -9,10 +9,11 @@ use std::sync::mpsc::{Sender, channel};
 use std::{thread};
 
 use std::io::{self, Write};
+use std::convert::TryFrom;
 
 
-fn scan(tx: Sender<u16>, addr: IpAddr, port: u16) {
-    match TcpStream::connect((addr, port)) {
+fn scan(tx: Sender<i16>, addr: IpAddr, port: i16) {
+    match TcpStream::connect((addr, u16::try_from(port).unwrap())) {
         Ok(_) => {
             print!(".");
             io::stdout().flush().unwrap();
@@ -20,13 +21,15 @@ fn scan(tx: Sender<u16>, addr: IpAddr, port: u16) {
         }
         Err(e) => {
             println!("{}", e);
+            io::stdout().flush().unwrap();
+            tx.send(-1).unwrap();
             println!("Close Port!!!!");
         }
     }
 }
 
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct PortSniffer {
     text_value: String,
     input_ip_value: String,
@@ -58,21 +61,19 @@ impl Sandbox for PortSniffer {
     fn update(&mut self, message: Message) {
         match message {
             Message::SnifferPressed => {
-                match IpAddr::from_str(&self.input_ip_value) {
+                match IpAddr::from_str(&self.input_ip_value.trim()) {
                     Ok(value) => {
                         self.input_ip_value = value.to_string();
 
-                        let port = self.input_port_value.trim().parse::<u16>().unwrap();
+                        let port = self.input_port_value.trim().parse::<i16>().unwrap();
                         let addr = value;
-                        let (tx, rx) = channel();
+                        let (tx, rx) = channel::<i16>();
 
-                        let tx1 = tx.clone();
                         thread::spawn(move || {
-                            scan(tx1, addr, port);
+                            scan(tx, addr, port);
                         });
 
                         let mut out = vec![];
-                        drop(tx);
 
                         for p in rx {
                             out.push(p);
@@ -80,9 +81,13 @@ impl Sandbox for PortSniffer {
 
                         out.sort();
                         for v in out {
-                            println!("{} is open= ", v);
-                            let vo = &*v.to_string();
-                            self.text_value = "is open".to_string() + vo;
+                            if v == -1 {
+                                self.text_value = "port close!!!".to_string();
+                            }else {
+                                println!("{} is open= ", v);
+                                let vo = &*v.to_string();
+                                self.text_value = "is open= ".to_string() + vo;
+                            }
                         }
                     }
                     Err(_) => {
